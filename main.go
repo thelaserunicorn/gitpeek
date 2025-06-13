@@ -205,7 +205,6 @@ func main(){
 			continue
 		}
 
-		// Filter for today
 		todayCommits := filterCommitsByTimeRange(commits, todayStart, todayEnd)
 		if len(todayCommits) > 0 {
 			todayStats = append(todayStats, CommitStats{
@@ -216,7 +215,6 @@ func main(){
 			todayTotal += len(todayCommits)
 		}
 
-		// Commits for this week (already filtered by 'since' in API call)
 		weekCommits := commits
 		if len(weekCommits) > 0 {
 			weekStats = append(weekStats, CommitStats{
@@ -227,9 +225,7 @@ func main(){
 			weekTotal += len(weekCommits)
 		}
 }
-fmt.Println("\n\nProcessing complete.") // New line after progress bar
-
-	// Print results
+fmt.Println("\n\nProcessing complete.") 
 	printCommitStats("TODAY'S COMMITS", todayStats, todayTotal)
 	printCommitStats("THIS WEEK'S COMMITS", weekStats, weekTotal)
 
