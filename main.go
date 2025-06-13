@@ -13,7 +13,7 @@ import (
 )
 
 type Repository struct {
-	Name string `json:"name"`
+	Name     string `json:"name"`
 	FullName string `json:"full_name"`
 }
 
@@ -27,6 +27,13 @@ type Commit struct {
 		} `json:"author"`
 		Message string `json:"message"`
 	} `json:"commit"`
+}
+
+type CommitDetail struct {
+	Stats struct {
+		Additions int `json:"additions"`
+		Deletions int `json:"deletions"`
+	} `json:"stats"`
 }
 
 type CommitStats struct {
@@ -70,17 +77,18 @@ func (g *GitHubClient) makeRequest(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func(g *GitHubClient) GetUserRepositories() ([]Repository, error){
+func (g *GitHubClient) GetUserRepositories() ([]Repository, error) {
 	url := fmt.Sprintf("https://api.github.com/users/%s/repos?per_page=100&sort=updated", g.Username)
 	body, err := g.makeRequest(url)
 	if err != nil {
 		return nil, err
 	}
+
 	var repos []Repository
 	if err := json.Unmarshal(body, &repos); err != nil {
 		return nil, err
 	}
-return repos, nil
+	return repos, nil
 }
 
 func (g *GitHubClient) GetCommitsForRepo(repo Repository, since time.Time) ([]Commit, error) {
@@ -98,13 +106,27 @@ func (g *GitHubClient) GetCommitsForRepo(repo Repository, since time.Time) ([]Co
 	return commits, nil
 }
 
+func (g *GitHubClient) GetCommitStats(repoFullName, sha string) (int, int, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/commits/%s", repoFullName, sha)
+	body, err := g.makeRequest(url)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var detail CommitDetail
+	if err := json.Unmarshal(body, &detail); err != nil {
+		return 0, 0, err
+	}
+	return detail.Stats.Additions, detail.Stats.Deletions, nil
+}
+
 func getTimeRanges() (time.Time, time.Time, time.Time, time.Time) {
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	todayEnd := todayStart.Add(24 * time.Hour)
 
 	weekday := int(now.Weekday())
-	if weekday == 0 { // Sunday is 0, but we treat it as 7 for our calculation
+	if weekday == 0 {
 		weekday = 7
 	}
 	weekStart := todayStart.AddDate(0, 0, -(weekday - 1))
@@ -113,6 +135,7 @@ func getTimeRanges() (time.Time, time.Time, time.Time, time.Time) {
 	return todayStart, todayEnd, weekStart, weekEnd
 }
 
+// filterCommitsByTimeRange filters commits within a specific time range
 func filterCommitsByTimeRange(commits []Commit, start, end time.Time) []Commit {
 	var filtered []Commit
 	for _, commit := range commits {
@@ -147,7 +170,7 @@ func printCommitStats(title string, stats []CommitStats, totalCommits int) {
 			}
 			for i := 0; i < maxShow; i++ {
 				commit := stat.Commits[i]
-				message := strings.Split(commit.Commit.Message, "\n")[0] // First line only
+				message := strings.Split(commit.Commit.Message, "\n")[0]
 				if len(message) > 60 {
 					message = message[:57] + "..."
 				}
@@ -160,13 +183,14 @@ func printCommitStats(title string, stats []CommitStats, totalCommits int) {
 	}
 }
 
-func main(){
-	var(
-		token = flag.String("token", "", "Gitub Personal Access Token")
-		username = flag.String("username", "", "Github username")
-		help = flag.Bool("help", false, "Show help message")
+func main() {
+	var (
+		token    = flag.String("token", "", "GitHub personal access token")
+		username = flag.String("username", "", "GitHub username")
+		help     = flag.Bool("help", false, "Show help message")
 	)
 	flag.Parse()
+
 	if *token == "" {
 		*token = os.Getenv("GITHUB_TOKEN")
 	}
@@ -195,7 +219,7 @@ func main(){
 
 	todayStart, todayEnd, weekStart, weekEnd := getTimeRanges()
 	var todayStats, weekStats []CommitStats
-	var todayTotal, weekTotal int = 0, 0
+	var todayTotal, weekTotal, weekAdditions, weekDeletions int
 
 	for i, repo := range repos {
 		fmt.Printf("\rProcessing repository %d/%d: %s      ", i+1, len(repos), repo.Name)
@@ -214,20 +238,32 @@ func main(){
 			todayTotal += len(todayCommits)
 		}
 
-		weekCommits := commits
-		if len(weekCommits) > 0 {
+		if len(commits) > 0 {
 			weekStats = append(weekStats, CommitStats{
 				Repository: repo.Name,
-				Count:      len(weekCommits),
-				Commits:    weekCommits,
+				Count:      len(commits),
+				Commits:    commits,
 			})
-			weekTotal += len(weekCommits)
+			weekTotal += len(commits)
+
+			for _, commit := range commits {
+				adds, dels, err := client.GetCommitStats(repo.FullName, commit.SHA)
+				if err != nil {
+					continue
+				}
+				weekAdditions += adds
+				weekDeletions += dels
+			}
 		}
-}
-fmt.Println("\n\nProcessing complete.") 
+	}
+
+	fmt.Println("\n\nProcessing complete.")
+
 	printCommitStats("TODAY'S COMMITS", todayStats, todayTotal)
 	printCommitStats("THIS WEEK'S COMMITS", weekStats, weekTotal)
 
+	fmt.Printf("\nLines of code added this week: %d\n", weekAdditions)
+	fmt.Printf("\nLines of code deleted this week: %d\n", weekDeletions)
 	fmt.Printf("\nTime period (Today): %s\n", todayStart.Format("Jan 2, 2006"))
 	fmt.Printf("Time period (This Week): %s - %s\n", weekStart.Format("Jan 2"), weekEnd.Add(-time.Second).Format("Jan 2, 2006"))
 }
