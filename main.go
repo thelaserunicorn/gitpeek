@@ -49,7 +49,6 @@ func NewGitHubClient(token, username string) *GitHubClient {
 	}
 }
 
-// makeRequest makes an authenticated HTTP request to the GitHub API
 func (g *GitHubClient) makeRequest(url string) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
